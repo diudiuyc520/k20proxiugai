@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 4
 PATCHLEVEL = 14
-SUBLEVEL = 336
+SUBLEVEL = 341
 EXTRAVERSION =
 NAME = Petit Gorille
 
@@ -121,8 +121,6 @@ export quiet Q KBUILD_VERBOSE
 # KBUILD_SRC is not intended to be used by the regular user (for now),
 # it is set on invocation of make with KBUILD_OUTPUT or O= specified.
 ifeq ($(KBUILD_SRC),)
-
-KBUILD_OUTPUT := out
 
 # OK, Make called in directory where kernel src resides
 # Do we want to locate output files in a separate directory?
@@ -378,7 +376,7 @@ HOSTCC	= gcc
 HOSTCXX	= g++
 endif
 HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O3 \
-		-fomit-frame-pointer -std=gnu89 -pipe $(HOST_LFS_CFLAGS)
+		-fomit-frame-pointer -std=gnu89 $(HOST_LFS_CFLAGS)
 HOSTCXXFLAGS := -O3 $(HOST_LFS_CFLAGS)
 HOSTLDFLAGS  := $(HOST_LFS_LDFLAGS)
 HOST_LOADLIBES := $(HOST_LFS_LIBS)
@@ -446,7 +444,7 @@ LINUXINCLUDE    := \
 		$(USERINCLUDE)
 
 KBUILD_AFLAGS   := -D__ASSEMBLY__
-KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -pipe \
+KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common -fshort-wchar \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
@@ -458,6 +456,8 @@ endif
 ifeq ($(CONFIG_EARLY_INIT),true)
 KBUILD_CFLAGS    += -DCONFIG_EARLY_SERVICES
 endif
+
+KBUILD_CFLAGS    += -Werror=vla
 
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
@@ -725,10 +725,10 @@ endif
 LLVM_AR		:= llvm-ar
 LLVM_NM		:= llvm-nm
 export LLVM_AR LLVM_NM
-# Set O3 optimization level for LTO
-KBUILD_LDFLAGS	+= --plugin-opt=O3 --strip-debug
-else
-KBUILD_LDFLAGS	+= -O3 --strip-debug
+# Set O3 optimization level for LTO with most linkers
+LDFLAGS		+= -O3
+LDFLAGS		+= --plugin-opt=O3
+LDFLAGS		+= --plugin-opt=-import-instr-limit=40
 endif
 
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
@@ -737,10 +737,6 @@ ARCH_CPPFLAGS :=
 ARCH_AFLAGS :=
 ARCH_CFLAGS :=
 include arch/$(SRCARCH)/Makefile
-
-ifdef CONFIG_CC_WERROR
-KBUILD_CFLAGS	+= -Werror
-endif
 
 KBUILD_CFLAGS	+= $(call cc-option,-fno-delete-null-pointer-checks,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
@@ -754,8 +750,10 @@ ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS   += -Os
 else
 KBUILD_CFLAGS   += -O3
-KBUILD_CFLAGS   += -mllvm -hot-cold-split=true
-KBUILD_CFLAGS   += -march=armv8.2-a+lse+crypto+dotprod -mcpu=cortex-a55+crypto+crc --cuda-path=/dev/null
+endif
+
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS	+= -mcpu=cortex-a76+crc+crypto -mtune=cortex-a76 -march=armv8.2-a+crc+crypto+lse+fp16+rdm+rcpc+dotprod
 endif
 
 # Tell gcc to never replace conditional load with a non-conditional one
@@ -830,6 +828,11 @@ KBUILD_CFLAGS += $(call cc-option,-fno-delete-null-pointer-checks,)
 # These warnings generated too much noise in a regular build.
 # Use make W=1 to enable them (see scripts/Makefile.extrawarn)
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
+
+ifeq ($(ld-name),lld)
+KBUILD_LDFLAGS  += -mllvm -mcpu=cortex-a76
+LDFLAGS += --lto-O3
+endif
 
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)
 
